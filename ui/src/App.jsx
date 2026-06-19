@@ -1,81 +1,82 @@
 /**
- * App.jsx — RENOCORP UI Root
- * ===========================
- * Wires together:
- *   · AuthProvider  (shared context)
- *   · AuthUI        (auth surface — single file)
- *   · Dashboard     (placeholder slot — wire in when ready)
+ * App.jsx — RENOCORP UI Root  v2.0
+ * ==================================
+ * Minimal root — mounts AuthProvider and delegates all
+ * routing/rendering to AuthContext state.
  *
- * Routing is handled purely by AuthContext state:
- *   loggedIn === false → <AuthUI />
- *   loggedIn === true  → <Dashboard /> (future)
+ * Separation of concerns:
+ *  · AuthProvider  — manages auth + shell state
+ *  · AuthUI        — handles unauthenticated surface
+ *  · AppShell      — handles authenticated surface (routes, nav, drawer)
  *
- * This file should NOT contain business logic.
+ * This file contains zero business logic.
  */
 
+import { lazy, Suspense } from "react";
 import { AuthProvider, useAuth } from "./AuthContext.jsx";
 import AuthUI from "./AuthUI.jsx";
+import globalStyles from "./styles.js";
 
-// ── Future: import Dashboard from "./dashboard/Dashboard.jsx";
+// AppShell is lazy-loaded — only parsed by the browser after login.
+// This keeps the initial auth bundle lean.
+const AppShell = lazy(() => import("./shell/AppShell.jsx"));
 
-function AppInner() {
-  const auth = useAuth();
-
-  if (!auth.loggedIn) {
-    return <AuthUI />;
+// ─── STYLE INJECTION ────────────────────────────────────────────────────────
+// Inject once at the module level. Idempotent — checks before inserting.
+if (typeof document !== "undefined") {
+  const STYLE_ID = "rc-global-styles";
+  if (!document.getElementById(STYLE_ID)) {
+    const tag = document.createElement("style");
+    tag.id = STYLE_ID;
+    tag.textContent = globalStyles;
+    document.head.insertBefore(tag, document.head.firstChild);
   }
+}
 
-  // Dashboard placeholder — swap for your Dashboard component when ready
+// ─── SHELL LOADING FALLBACK ─────────────────────────────────────────────────
+function ShellLoader() {
   return (
-    <div style={{
-      minHeight: "100vh",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      background: "#080c10",
-      color: "#e6edf3",
-      fontFamily: "'Syne', sans-serif",
-      flexDirection: "column",
-      gap: 16,
-    }}>
-      <div style={{
-        width: 40, height: 40,
-        background: "#4ade80",
-        borderRadius: 10,
-        display: "flex", alignItems: "center",
+    <div
+      style={{
+        minHeight: "100dvh",
+        display: "flex",
+        alignItems: "center",
         justifyContent: "center",
-        fontWeight: 800, fontSize: 18,
-        color: "#080c10",
-        boxShadow: "0 0 24px rgba(74,222,128,0.3)",
-      }}>RC</div>
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>
-          Logged in as {auth.user?.first_name || auth.user?.email || "user"}
-        </div>
-        <div style={{ fontSize: 13, color: "#7d8590", fontFamily: "'DM Mono', monospace" }}>
-          Dashboard coming soon — auth complete ✓
-        </div>
-      </div>
-      <button
-        onClick={auth.logout}
+        background: "#080c10",
+      }}
+    >
+      {/* Minimal spinner — matches design system, no component import needed */}
+      <div
         style={{
-          marginTop: 8,
-          padding: "9px 20px",
-          background: "transparent",
-          border: "1px solid rgba(255,255,255,0.1)",
-          borderRadius: 9,
-          color: "#7d8590",
-          fontFamily: "'Syne', sans-serif",
-          fontSize: 13, fontWeight: 600,
-          cursor: "pointer",
+          width: 32,
+          height: 32,
+          border: "2.5px solid rgba(255,255,255,0.07)",
+          borderTopColor: "#4ade80",
+          borderRadius: "50%",
+          animation: "rc-spin 0.7s linear infinite",
         }}
-      >
-        Sign out
-      </button>
+      />
+      <style>{`@keyframes rc-spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
 
+// ─── INNER (reads auth context) ─────────────────────────────────────────────
+function AppInner() {
+  const { loggedIn } = useAuth();
+
+  if (!loggedIn) {
+    return <AuthUI />;
+  }
+
+  return (
+    <Suspense fallback={<ShellLoader />}>
+      <AppShell />
+    </Suspense>
+  );
+}
+
+// ─── ROOT ───────────────────────────────────────────────────────────────────
 export default function App() {
   return (
     <AuthProvider>
@@ -83,4 +84,3 @@ export default function App() {
     </AuthProvider>
   );
 }
-
