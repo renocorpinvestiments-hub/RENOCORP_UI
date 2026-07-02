@@ -1556,6 +1556,328 @@ export const globalStyles = `
 
   /* ── PAGE TRANSITIONS ── */
   .page-enter { animation: rcFadeIn 0.22s var(--ease) both; }
+
+  /* ══════════════════════════════════════════════
+     SMALL BUTTON / ICON-BUTTON UTILITIES
+     (used by Rewards.jsx and any future screen)
+  ══════════════════════════════════════════════ */
+  .btn-sm {
+    padding: 6px 12px;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .btn-icon {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius);
+    background: var(--surface-3);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    transition: background var(--transition), color var(--transition);
+  }
+  .btn-icon:hover { background: var(--surface-4); color: var(--text); }
+  .btn-icon:disabled { opacity: 0.45; pointer-events: none; }
+
+  /* Reuses the rc-spin keyframe injected globally in App.jsx */
+  .spin { animation: rc-spin 0.7s linear infinite; }
+
+  /* ══════════════════════════════════════════════
+     REWARDS SCREEN
+  ══════════════════════════════════════════════ */
+
+  .rewards-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .rewards-title {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    color: var(--text);
+    font-family: var(--font-display);
+  }
+
+  /* ── Error banner (retry-capable) ── */
+  .rewards-error-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--danger-dim);
+    border: 1px solid var(--danger-border);
+    border-radius: var(--radius);
+    color: var(--danger);
+    font-size: 13px;
+    animation: rcFadeIn 0.2s var(--ease);
+  }
+  .rewards-error-banner span { flex: 1; }
+
+  /* ── Pending: progress card ── */
+  .rewards-progress-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: rcFadeIn 0.25s var(--ease);
+  }
+  .rewards-progress-card.limit-reached {
+    border-color: var(--accent-border);
+    background: linear-gradient(135deg, var(--accent-dim) 0%, var(--surface-2) 70%);
+  }
+
+  .rewards-progress-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .rewards-progress-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  .rewards-live-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent-glow);
+    animation: rcPulseDot 1.1s ease-in-out infinite;
+  }
+  @keyframes rcPulseDot {
+    0%, 100% { opacity: 0.4; }
+    50%      { opacity: 1; }
+  }
+
+  .rewards-progress-value {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .rewards-progress-sep { color: var(--text-dim); font-weight: 400; }
+  .rewards-progress-limit { color: var(--text-muted); }
+  .rewards-limit-text { color: var(--accent); }
+
+  .rewards-progress-track {
+    height: 6px;
+    background: var(--surface-3);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .rewards-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 99px;
+    transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 0 8px var(--accent-glow);
+  }
+  .rewards-progress-fill.done { background: var(--accent); }
+
+  .rewards-progress-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+  }
+  .rewards-progress-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .rewards-remaining { color: var(--warning); }
+
+  /* ── Pending: info card ── */
+  .rewards-info-card {
+    display: flex;
+    gap: 12px;
+    padding: 14px;
+    background: var(--info-dim);
+    border: 1px solid var(--info-border);
+    border-radius: var(--radius-lg);
+    margin-top: 12px;
+    animation: rcFadeIn 0.25s var(--ease);
+  }
+  .rewards-info-icon { color: var(--info); flex-shrink: 0; margin-top: 1px; }
+  .rewards-info-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+  }
+  .rewards-info-text {
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-muted);
+  }
+
+  .rewards-pending { display: flex; flex-direction: column; }
+
+  /* ── Pending: check-in nudge ── */
+  .rewards-checkin-nudge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 12px;
+    padding: 12px 14px;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-border);
+    border-radius: var(--radius-lg);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+    transition: background var(--transition);
+  }
+  .rewards-checkin-nudge:hover { background: rgba(74, 222, 128, 0.16); }
+  .rewards-checkin-nudge span { flex: 1; }
+
+  /* ── Rewarded: toolbar ── */
+  .rewards-list-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .rewards-list-count {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+  }
+
+  /* ── Rewarded: list ── */
+  .rewards-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .rewards-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    transition: border-color var(--transition);
+    animation: rcFadeIn 0.2s var(--ease);
+  }
+  .rewards-row:hover { border-color: var(--border-hover); }
+
+  .rewards-row-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius);
+    border: 1px solid;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .rewards-row-content { flex: 1; min-width: 0; }
+
+  .rewards-row-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .rewards-row-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rewards-row-amount {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+
+  .rewards-row-sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+  }
+  .rewards-row-dot { color: var(--text-dim); }
+  .rewards-row-provider { text-transform: capitalize; }
+
+  /* ── Rewarded: load more / end of list ── */
+  .rewards-load-more-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 16px 0 4px;
+  }
+
+  .rewards-list-end {
+    text-align: center;
+    padding: 16px 0 4px;
+    font-size: 11px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+  }
+
+  /* ══════════════════════════════════════════════
+     RESPONSIVE — tablet and above
+  ══════════════════════════════════════════════ */
+  @media (min-width: 600px) {
+    .rewards-progress-value { font-size: 17px; }
+    .rewards-list { gap: 10px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rewards-progress-fill,
+    .rewards-row,
+    .rewards-progress-card,
+    .rewards-info-card,
+    .rewards-live-dot,
+    .spin {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
 `;
 
 export default globalStyles;
