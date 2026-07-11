@@ -1878,6 +1878,57 @@ export const globalStyles = `
       transition: none !important;
     }
   }
+
+  /* ══════════════════════════════════════════════
+     TOGGLE SWITCH (Settings — notification prefs)
+  ══════════════════════════════════════════════ */
+  .rc-switch {
+    position: relative;
+    width: 42px; height: 24px;
+    flex-shrink: 0;
+    background: var(--surface-4);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+    padding: 0;
+    transition: background var(--transition), border-color var(--transition);
+  }
+
+  .rc-switch-on {
+    background: var(--accent-dim);
+    border-color: var(--accent-border);
+  }
+
+  .rc-switch-thumb {
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: transform var(--transition), background var(--transition);
+  }
+
+  .rc-switch-on .rc-switch-thumb {
+    transform: translateX(18px);
+    background: var(--accent);
+  }
+
+  .rc-switch:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .rc-switch:focus-visible {
+    outline: 2px solid var(--accent-border);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rc-switch,
+    .rc-switch-thumb {
+      transition: none !important;
+    }
+  }
 `;
 
 export default globalStyles;
