@@ -120,15 +120,38 @@ function jitteredBackoff(attempt) {
  * { status: number, message: string, code?: string }
  */
 function normalizeError(status, data) {
+  // Backend convention across every module (verified in modules/*/routes.py):
+  // HTTPException(detail={ "code": "...", "message": "...", ...extra }).
+  // FastAPI serializes this as { detail: { code, message, ... } } — `detail`
+  // is an OBJECT for nearly every domain error this API returns, not a plain
+  // string. Unwrap it so callers get a real human message + a stable `code`,
+  // while still supporting plain-string `detail` (FastAPI's own built-in
+  // 422 validation errors use a string/array shape) and top-level
+  // `error`/`message` fields from any legacy or third-party responses.
+  const detail = data?.detail;
+  const isStructured = detail != null && typeof detail === "object" && !Array.isArray(detail);
+
   const message =
-    data?.detail ??
+    (isStructured ? detail.message : null) ??
+    (typeof detail === "string" ? detail : null) ??
     data?.error ??
     data?.message ??
     (typeof data === "string" ? data : null) ??
     "Something went wrong";
+
+  const code =
+    (isStructured ? detail.code : null) ??
+    data?.error ??
+    null;
+
   return Object.assign(new Error(String(message)), {
     status,
-    code: data?.error ?? null,
+    code,
+    // Extra structured fields — e.g. { available, requested } on
+    // INSUFFICIENT_BALANCE, { limit_usd, today_total } on
+    // DAILY_LIMIT_EXCEEDED — so callers can build precise UI without
+    // re-parsing the raw response.
+    details: isStructured ? detail : null,
     isApiError: true,
   });
 }
@@ -337,7 +360,17 @@ export const api = Object.freeze({
 
   // ── WITHDRAWALS ───────────────────────────────────────────────────────────
   withdrawals: Object.freeze({
-    request:     (body)   => authedFetch(`${URLS.WITHDRAWALS}/request`,                    { method: "POST", body: JSON.stringify(body) }),
+    // `idempotencyKey` (optional 2nd arg) lets the caller pin the exact
+    // header value used for this logical submission — critical for the
+    // withdrawal form, where the SAME key must be reused across manual
+    // user retries (e.g. re-tapping Confirm after a validation error),
+    // not just coreFetch's own internal network-failure retries.
+    // Backward compatible: existing 1-arg callers are unaffected.
+    request:     (body, idempotencyKey) => authedFetch(`${URLS.WITHDRAWALS}/request`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      ...(idempotencyKey ? { headers: { "idempotency-key": idempotencyKey } } : {}),
+    }),
     history:     (params) => authedFetch(`${URLS.WITHDRAWALS}/history${qs(params)}`),
     status:      (id)     => authedFetch(`${URLS.WITHDRAWALS}/${id}/status`),
     feeEstimate: (params) => authedFetch(`${URLS.WITHDRAWALS}/fee-estimate${qs(params)}`),
