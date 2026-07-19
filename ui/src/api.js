@@ -400,9 +400,26 @@ export const api = Object.freeze({
 
   // ── PACKAGES ──────────────────────────────────────────────────────────────
   packages: Object.freeze({
-    mine:      ()      => authedFetch(`${URLS.PACKAGES}/mine`),
-    history:   ()      => authedFetch(`${URLS.PACKAGES}/history`),
-    subscribe: (body)  => authedFetch(`${URLS.PACKAGES}/subscribe`, { method: "POST", body: JSON.stringify(body) }),
+    // GET /api/packages (bare) — the admin-configured tier catalog
+    // (Package: task_limit, withdraw_threshold_usd, features, price_display,
+    // etc). Distinct from payments.plans() below, which lists the separate
+    // PaymentPlan catalog owned by the payments module — packages/subscribe
+    // operates on package_id, not plan_id, so this is the catalog that
+    // actually matches what /packages/subscribe accepts.
+    list:      ()       => authedFetch(`${URLS.PACKAGES}`),
+    mine:      ()       => authedFetch(`${URLS.PACKAGES}/mine`),
+    history:   (params) => authedFetch(`${URLS.PACKAGES}/history${qs(params)}`),
+    // `idempotencyKey` (optional 2nd arg) — identical rationale to
+    // withdrawals.request above: lets the caller pin the exact header
+    // value so a manual resubmission (e.g. re-tapping "Subscribe" after a
+    // transient error while the same attempt is still in flight) replays
+    // the SAME payment intent instead of creating a duplicate charge.
+    // Backward compatible: existing 1-arg callers are unaffected.
+    subscribe: (body, idempotencyKey) => authedFetch(`${URLS.PACKAGES}/subscribe`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      ...(idempotencyKey ? { headers: { "idempotency-key": idempotencyKey } } : {}),
+    }),
     cancel:    ()      => authedFetch(`${URLS.PACKAGES}/cancel`,    { method: "POST", body: "{}" }),
   }),
 
