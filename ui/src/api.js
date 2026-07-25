@@ -519,14 +519,29 @@ export const api = Object.freeze({
     toggleReferrals:   ()      => authedFetch(`${URLS.REFERRALS}/admin/config/toggle`,{ method: "POST", body: "{}" }),
     voidReferral:      (id)    => authedFetch(`${URLS.REFERRALS}/admin/${id}/void`,   { method: "POST", body: "{}" }),
 
-    // Packages (admin)
+    // Payments module's own plan catalog — separate concern from packages
+    // module below. Kept as-is; not used by AdminPackages.jsx.
     plans:          (p)     => authedFetch(`${URLS.PAYMENTS}/plans${qs(p)}`),
     createPlan:     (body)  => authedFetch(`${URLS.PAYMENTS}/plans`,                  { method: "POST",  body: JSON.stringify(body) }),
     updatePlan:     (id, b) => authedFetch(`${URLS.PAYMENTS}/plans/${id}`,            { method: "PATCH", body: JSON.stringify(b) }),
-    subscriptions:  ()      => authedFetch(`${URLS.PACKAGES}/subscriptions`),
-    cancelUserSub:  (id)    => authedFetch(`${URLS.PACKAGES}/subscriptions/${id}/cancel`, { method: "POST", body: "{}" }),
     paymentStats:   ()      => authedFetch(`${URLS.PAYMENTS}/stats`),
     transactions:   (p)     => authedFetch(`${URLS.PAYMENTS}/transactions${qs(p)}`),
+
+    // Packages (admin) — modules/packages/routes.py `admin_router`, mounted
+    // at /api/admin/packages. This is the tier/CRUD surface AdminPackages.jsx
+    // uses. NOTE: the `subscriptions`/`cancelUserSub` entries that used to
+    // live here pointed at `${URLS.PACKAGES}/subscriptions` (i.e.
+    // /api/packages/subscriptions) — that path doesn't exist on the backend
+    // (the admin subscriptions log is mounted under /api/admin/packages, not
+    // /api/packages). Replaced below with the correct, verified paths.
+    packages: Object.freeze({
+      list:          ()      => authedFetch(`${URLS.ADMIN}/packages`),
+      stats:         ()      => authedFetch(`${URLS.ADMIN}/packages/stats`),
+      create:        (body)  => authedFetch(`${URLS.ADMIN}/packages`,               { method: "POST",  body: JSON.stringify(body) }),
+      update:        (id, b) => authedFetch(`${URLS.ADMIN}/packages/${id}`,         { method: "PATCH", body: JSON.stringify(b) }),
+      subscriptions: (p)     => authedFetch(`${URLS.ADMIN}/packages/subscriptions${qs(p)}`),
+      cancelUserSub: (id, b) => authedFetch(`${URLS.ADMIN}/packages/subscriptions/${id}/cancel`, { method: "POST", body: JSON.stringify(b ?? {}) }),
+    }),
 
     // Vault
     vaultStatus:      ()             => authedFetch(`${URLS.VAULT}/status`),
