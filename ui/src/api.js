@@ -389,6 +389,18 @@ export const api = Object.freeze({
   // ── OFFERWALL ─────────────────────────────────────────────────────────────
   offerwall: Object.freeze({
     feed: () => authedFetch(`${URLS.OFFERWALL}/feed`),
+
+    // [Admin] Source of truth for live provider state — reads/writes the
+    // same `provider_config` table the feed builder itself uses (see
+    // modules/offerwall/service.py). Distinct from the legacy
+    // /api/admin/offerwalls surface, which targets a separate
+    // `offerwall_providers` table and is NOT wired here on purpose.
+    admin: Object.freeze({
+      stats:     ()             => authedFetch(`${URLS.OFFERWALL}/admin/stats`),
+      providers: ()             => authedFetch(`${URLS.OFFERWALL}/admin/providers`),
+      toggle:    (name, enabled) => authedFetch(`${URLS.OFFERWALL}/admin/providers/${name}/toggle`, { method: "POST", body: JSON.stringify({ enabled }) }),
+      test:      (name)         => authedFetch(`${URLS.OFFERWALL}/admin/providers/${name}/test`, { method: "POST", body: "{}" }),
+    }),
   }),
 
   // ── REFERRALS ─────────────────────────────────────────────────────────────
