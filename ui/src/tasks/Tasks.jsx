@@ -1,18 +1,23 @@
 /**
- * tasks/Tasks.jsx — RENOCORP Task Feed  v2.0
+ * tasks/Tasks.jsx — RENOCORP Task Feed  v2.1
  * ============================================
  * The primary task-earning screen.
+ *
+ * v2.1 change: the collapsed grid card and the expanded "widened" detail
+ * view now live in their own dedicated files — tasks/TaskCard.jsx and
+ * tasks/TaskDetail.jsx — instead of being inlined here. This screen is now
+ * purely responsible for: fetching the feed, driving the category tabs,
+ * daily progress / check-in, and deciding which task (if any) is expanded.
  *
  * Architecture:
  *  · Task feed fetched from /api/tasks/feed with optional type filter
  *  · Dynamic tab bar — only shows types that exist in the feed (blueprint note)
- *  · 2-column scrollable card grid (blueprint image 1)
- *  · Tap card → expands like YouTube video (blueprint note)
+ *  · 2-column scrollable card grid (blueprint image 1) via <TaskCard />
+ *  · Tap card → expands like YouTube video via <TaskDetail /> (blueprint note)
  *  · After task viewed+completed → moves to Rewards (pending) screen
  *  · Daily check-in claim button (idempotent — safe to tap multiple times)
  *  · Daily progress bar visible at top
  *  · Limit-reached gate — blocks new tasks when daily cap hit
- *  · TaskDetail embedded (inline expand, not separate route for mobile feel)
  *  · AbortController on every fetch, stale-while-revalidate
  *  · Zero localStorage — all in-memory
  *
@@ -29,14 +34,7 @@
  *  - "When no tasks → shows 'no tasks available'"
  */
 
-import {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-  memo,
-} from "react";
+import { useState, useCallback, useMemo, memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "../hooks/useApi.js";
 import { api } from "../api.js";
@@ -44,65 +42,28 @@ import { formatUGX } from "../utils/formatUGX.js";
 import { TabBar } from "../components/TabBar.jsx";
 import { EmptyState } from "../components/EmptyState.jsx";
 import { Spinner } from "../components/Spinner.jsx";
-import { Badge } from "../components/Badge.jsx";
-import { Modal } from "../components/Modal.jsx";
+import TaskCard from "./TaskCard.jsx";
+import TaskDetail from "./TaskDetail.jsx";
 import {
-  PlayCircleIcon,
-  ClipboardListIcon,
-  GiftIcon,
-  DownloadIcon,
-  HelpCircleIcon,
-  ZapIcon,
-  CheckCircleIcon,
   AlertCircleIcon,
   RefreshCwIcon,
-  ClockIcon,
-  ChevronDownIcon,
-  ExternalLinkIcon,
-  TrendingUpIcon,
+  CheckCircleIcon,
   StarIcon,
+  ZapIcon,
+  TrendingUpIcon,
 } from "lucide-react";
-
-// ─── TASK TYPE ICONS ────────────────────────────────────────────────────────
-const TYPE_ICONS = {
-  VIDEO:    PlayCircleIcon,
-  SURVEY:   ClipboardListIcon,
-  OFFER:    GiftIcon,
-  DOWNLOAD: DownloadIcon,
-  QUIZ:     HelpCircleIcon,
-  CHECKIN:  ZapIcon,
-};
-
-const TYPE_COLORS = {
-  VIDEO:    { bg: "var(--info-dim)",    border: "var(--info-border)",    color: "var(--info)" },
-  SURVEY:   { bg: "var(--purple-dim)",  border: "var(--purple-border)",  color: "var(--purple)" },
-  OFFER:    { bg: "var(--accent-dim)",  border: "var(--accent-border)",  color: "var(--accent)" },
-  DOWNLOAD: { bg: "var(--warning-dim)", border: "var(--warning-border)", color: "var(--warning)" },
-  QUIZ:     { bg: "var(--info-dim)",    border: "var(--info-border)",    color: "var(--info)" },
-  CHECKIN:  { bg: "var(--accent-dim)",  border: "var(--accent-border)",  color: "var(--accent)" },
-};
-
-function getTypeStyle(type) {
-  return TYPE_COLORS[type?.toUpperCase()] ?? TYPE_COLORS.OFFER;
-}
-
-function TaskTypeIcon({ type, size = 16, ...props }) {
-  const Icon = TYPE_ICONS[type?.toUpperCase()] ?? GiftIcon;
-  return <Icon size={size} strokeWidth={2} {...props} />;
-}
 
 // ─── DAILY PROGRESS BAR ─────────────────────────────────────────────────────
 const DailyProgressBar = memo(function DailyProgressBar({ progress }) {
   if (!progress) return null;
 
   const {
-    earned_today_usd    = 0,
-    daily_limit_usd     = 2,
-    progress_pct        = 0,
-    limit_reached       = false,
-    checkin_available   = false,
+    earned_today_usd = 0,
+    daily_limit_usd = 2,
+    progress_pct = 0,
+    limit_reached = false,
     tasks_completed_today = 0,
-    membership_tier     = "free",
+    membership_tier = "free",
   } = progress;
 
   const pct = Math.min(100, Math.max(0, progress_pct));
@@ -166,7 +127,7 @@ function CheckInButton({ progress, onCheckin, loading }) {
   const [status, setStatus] = useState("idle"); // idle | loading | success | already
 
   const available = progress?.checkin_available ?? false;
-  const claimed   = progress?.checkin_claimed_at != null;
+  const claimed = progress?.checkin_claimed_at != null;
 
   const handleCheckin = useCallback(async () => {
     if (status === "loading" || claimed || !available) return;
@@ -221,165 +182,12 @@ function CheckInButton({ progress, onCheckin, loading }) {
   );
 }
 
-// ─── TASK CARD ───────────────────────────────────────────────────────────────
-// Collapsed grid card — tapping expands (blueprint: "widens like YouTube")
-const TaskCard = memo(function TaskCard({ task, expanded, onToggle, onComplete, completing }) {
-  const navigate    = useNavigate();
-  const typeStyle   = getTypeStyle(task.type);
-  const rewardUGX   = Math.round((task.reward_usd ?? 0) * 3750);
-
-  // Expanded view — the "widened" YouTube-style detail
-  if (expanded) {
-    return (
-      <div className="task-card task-card-expanded" aria-expanded="true">
-        {/* Close / collapse strip */}
-        <button
-          className="task-card-collapse-btn"
-          onClick={() => onToggle(null)}
-          aria-label="Collapse task"
-        >
-          <ChevronDownIcon size={15} strokeWidth={2} aria-hidden="true" />
-          Collapse
-        </button>
-
-        {/* Type badge + provider */}
-        <div className="task-expanded-header">
-          <div
-            className="task-type-chip"
-            style={{
-              background: typeStyle.bg,
-              borderColor: typeStyle.border,
-              color: typeStyle.color,
-            }}
-          >
-            <TaskTypeIcon type={task.type} size={12} />
-            {task.type_label || task.type}
-          </div>
-          <span className="task-provider-label">
-            {task.provider_display || task.provider}
-          </span>
-        </div>
-
-        {/* Title */}
-        <h3 className="task-expanded-title">{task.title}</h3>
-
-        {/* Description */}
-        {task.description && (
-          <p className="task-expanded-desc">{task.description}</p>
-        )}
-
-        {/* Reward + time row */}
-        <div className="task-expanded-meta">
-          <div className="task-reward-display">
-            <span className="task-reward-ugx">{formatUGX(rewardUGX)}</span>
-            <span className="task-reward-usd">(${task.reward_usd?.toFixed(4)})</span>
-          </div>
-          {task.duration_min > 0 && (
-            <div className="task-meta-chip">
-              <ClockIcon size={12} strokeWidth={2} aria-hidden="true" />
-              {task.duration_min} min
-            </div>
-          )}
-        </div>
-
-        {/* Action buttons */}
-        <div className="task-expanded-actions">
-          <a
-            href={task.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-primary task-start-btn"
-            onClick={() => {
-              // After clicking the external link, show the "Mark Complete" option
-            }}
-            aria-label={`Start task: ${task.title}`}
-          >
-            <ExternalLinkIcon size={14} strokeWidth={2} aria-hidden="true" />
-            Start Task
-          </a>
-          <button
-            className="btn-secondary task-done-btn"
-            onClick={() => onComplete(task)}
-            disabled={completing}
-            aria-label="Mark task as complete"
-          >
-            {completing ? (
-              <Spinner size="sm" />
-            ) : (
-              <CheckCircleIcon size={14} strokeWidth={2} aria-hidden="true" />
-            )}
-            {completing ? "Submitting…" : "I'm Done"}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Collapsed grid card ──────────────────────────────────────────────────
-  return (
-    <button
-      className="task-card task-card-grid"
-      onClick={() => onToggle(task.task_id)}
-      aria-expanded="false"
-      aria-label={`${task.title} — ${formatUGX(rewardUGX)}`}
-    >
-      {/* Thumbnail or gradient placeholder */}
-      <div className="task-card-thumb" aria-hidden="true">
-        {task.thumbnail ? (
-          <img
-            src={task.thumbnail}
-            alt=""
-            loading="lazy"
-            className="task-thumb-img"
-          />
-        ) : (
-          <div
-            className="task-thumb-placeholder"
-            style={{ background: typeStyle.bg }}
-          >
-            <TaskTypeIcon
-              type={task.type}
-              size={28}
-              style={{ color: typeStyle.color, opacity: 0.7 }}
-            />
-          </div>
-        )}
-        {/* Duration pill */}
-        {task.duration_min > 0 && (
-          <div className="task-duration-pill" aria-hidden="true">
-            {task.duration_min}m
-          </div>
-        )}
-      </div>
-
-      {/* Card body */}
-      <div className="task-card-body">
-        <div className="task-card-title">{task.title}</div>
-        <div className="task-card-footer">
-          {/* Type icon — bottom left (blueprint) */}
-          <div
-            className="task-type-icon-dot"
-            style={{
-              background: typeStyle.bg,
-              border: `1px solid ${typeStyle.border}`,
-            }}
-            aria-label={task.type_label || task.type}
-          >
-            <TaskTypeIcon type={task.type} size={11} style={{ color: typeStyle.color }} />
-          </div>
-          <div className="task-card-reward">{formatUGX(rewardUGX)}</div>
-        </div>
-      </div>
-    </button>
-  );
-});
-
 // ─── LIMIT GATE ─────────────────────────────────────────────────────────────
 function LimitGateBanner({ progress }) {
+  const navigate = useNavigate();
   if (!progress?.limit_reached) return null;
 
   const tierName = progress.membership_tier;
-  const navigate = useNavigate();
 
   return (
     <div className="tasks-limit-gate" role="alert">
@@ -398,67 +206,6 @@ function LimitGateBanner({ progress }) {
         </button>
       )}
     </div>
-  );
-}
-
-// ─── COMPLETE CONFIRMATION MODAL ─────────────────────────────────────────────
-function CompleteModal({ task, open, onClose, onConfirm, loading, result }) {
-  if (!task) return null;
-  const rewardUGX = Math.round((task.reward_usd ?? 0) * 3750);
-
-  return (
-    <Modal open={open} onClose={!loading ? onClose : undefined} title="Submit Completion">
-      {result ? (
-        // Success state
-        <div className="complete-modal-result">
-          <div className="complete-modal-success-icon" aria-hidden="true">✅</div>
-          <div className="complete-modal-success-title">Task Submitted!</div>
-          <p className="complete-modal-success-msg">
-            Your completion for <strong>{task.title}</strong> has been submitted for review.
-            You'll receive{" "}
-            <strong style={{ color: "var(--accent)" }}>{formatUGX(rewardUGX)}</strong>{" "}
-            once approved. Check <strong>Rewards → Pending</strong> to track it.
-          </p>
-          <button className="btn-primary" onClick={onClose} style={{ width: "100%" }}>
-            View Rewards
-          </button>
-        </div>
-      ) : (
-        // Confirm state
-        <>
-          <p style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6, marginBottom: 6 }}>
-            Confirm you have completed:
-          </p>
-          <div className="complete-modal-task-preview">
-            <strong style={{ fontSize: 14, color: "var(--text)" }}>{task.title}</strong>
-            <div
-              className="task-type-chip"
-              style={{ ...getTypeStyle(task.type), width: "fit-content", marginTop: 6 }}
-            >
-              <TaskTypeIcon type={task.type} size={12} />
-              {task.type_label || task.type}
-            </div>
-          </div>
-          <div className="complete-modal-reward-row">
-            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Pending reward</span>
-            <span style={{ fontSize: 16, fontWeight: 800, color: "var(--accent)", fontFamily: "var(--font-display)" }}>
-              {formatUGX(rewardUGX)}
-            </span>
-          </div>
-          <p style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5, marginBottom: 18 }}>
-            ⚠️ Only submit if you genuinely completed the task. False submissions may result in account suspension.
-          </p>
-          <div className="rc-confirm-actions">
-            <button className="btn-secondary" onClick={onClose} disabled={loading}>
-              Cancel
-            </button>
-            <button className="btn-primary" onClick={onConfirm} disabled={loading}>
-              {loading ? <Spinner size="sm" /> : "Confirm Submission"}
-            </button>
-          </div>
-        </>
-      )}
-    </Modal>
   );
 }
 
@@ -482,12 +229,6 @@ export default function Tasks() {
 
   // ── Expanded task (only one at a time — like YouTube) ────────────────────
   const [expandedId, setExpandedId] = useState(null);
-
-  // ── Complete modal state ─────────────────────────────────────────────────
-  const [completeTask,    setCompleteTask]    = useState(null);
-  const [completeModalOpen, setCompleteModalOpen] = useState(false);
-  const [completing,      setCompleting]      = useState(false);
-  const [completeResult,  setCompleteResult]  = useState(null);
 
   // ── Check-in state ───────────────────────────────────────────────────────
   const [checkingIn, setCheckingIn] = useState(false);
@@ -515,8 +256,8 @@ export default function Tasks() {
     reload: reloadFeed,
   } = useApi(() => api.tasks.feed(feedParams), [refreshKey, activeType]);
 
-  const tasks        = feed?.tasks ?? [];
-  const progress     = feed?.daily_progress ?? null;
+  const tasks = feed?.tasks ?? [];
+  const progress = feed?.daily_progress ?? null;
   const available_types = feed?.available_types ?? [];
 
   // ── Dynamic tabs (blueprint: "if no tasks for type, tab doesn't show") ──
@@ -534,7 +275,6 @@ export default function Tasks() {
     setCheckingIn(true);
     try {
       const result = await api.tasks.checkin();
-      // Refresh to update daily progress bar
       setTimeout(() => reloadFeed(), 400);
       return result;
     } finally {
@@ -543,47 +283,26 @@ export default function Tasks() {
   }, [reloadFeed]);
 
   // ── Toggle expand ────────────────────────────────────────────────────────
-  const handleToggle = useCallback((taskId) => {
-    setExpandedId((prev) => (prev === taskId ? null : taskId));
+  const handleSelect = useCallback((task) => {
+    setExpandedId((prev) => (prev === task.task_id ? null : task.task_id));
   }, []);
 
-  // ── Open complete modal ───────────────────────────────────────────────────
-  const handleCompleteOpen = useCallback((task) => {
-    setCompleteTask(task);
-    setCompleteResult(null);
-    setCompleteModalOpen(true);
-  }, []);
+  const handleCollapse = useCallback(() => setExpandedId(null), []);
 
-  // ── Submit completion ─────────────────────────────────────────────────────
-  const handleCompleteSubmit = useCallback(async () => {
-    if (!completeTask || completing) return;
-    setCompleting(true);
-    try {
-      // Generate idempotency key: provider:taskId:timestamp
-      const idemKey = `${completeTask.provider}:${completeTask.task_id}:${Date.now()}`;
-      await api.tasks.complete(completeTask.task_id, { idempotency_key: idemKey });
-      setCompleteResult({ success: true });
-      setExpandedId(null);
-      // Refresh feed + progress after short delay
+  // ── Complete a task (delegated to TaskDetail's own confirm flow) ────────
+  const handleComplete = useCallback(
+    async (task) => {
+      const idemKey = `${task.provider}:${task.task_id}:${Date.now()}`;
+      await api.tasks.complete(task.task_id, { idempotency_key: idemKey });
       setTimeout(() => reloadFeed(), 1000);
-    } catch (err) {
-      setCompleteResult({
-        error: err?.message ?? "Submission failed. Please try again.",
-      });
-    } finally {
-      setCompleting(false);
-    }
-  }, [completeTask, completing, reloadFeed]);
+    },
+    [reloadFeed]
+  );
 
-  const handleCompleteClose = useCallback(() => {
-    setCompleteModalOpen(false);
-    setCompleteTask(null);
-    setCompleteResult(null);
-    // If completed successfully, go to rewards
-    if (completeResult?.success) {
-      navigate("/rewards");
-    }
-  }, [completeResult, navigate]);
+  const handleDone = useCallback(() => {
+    setExpandedId(null);
+    navigate("/rewards");
+  }, [navigate]);
 
   // ── Limit gate ───────────────────────────────────────────────────────────
   const limitReached = progress?.limit_reached === true;
@@ -596,17 +315,12 @@ export default function Tasks() {
 
   return (
     <div className="tasks-screen">
-
       {/* ── Daily Progress ── */}
       <DailyProgressBar progress={progress} />
 
       {/* ── Check-in + Limit ── */}
       <div className="tasks-top-row">
-        <CheckInButton
-          progress={progress}
-          onCheckin={handleCheckin}
-          loading={checkingIn}
-        />
+        <CheckInButton progress={progress} onCheckin={handleCheckin} loading={checkingIn} />
         {isRefetching && (
           <div className="tasks-refetch-indicator" aria-label="Refreshing tasks">
             <RefreshCwIcon size={13} strokeWidth={2} className="spin" aria-hidden="true" />
@@ -671,40 +385,21 @@ export default function Tasks() {
           <div className="task-grid">
             {displayTasks.map((task) =>
               expandedId === task.task_id ? (
-                // Expanded card spans full width
                 <div key={task.task_id} className="task-grid-expanded-slot">
-                  <TaskCard
+                  <TaskDetail
                     task={task}
-                    expanded={true}
-                    onToggle={handleToggle}
-                    onComplete={handleCompleteOpen}
-                    completing={completing && completeTask?.task_id === task.task_id}
+                    onCollapse={handleCollapse}
+                    onComplete={handleComplete}
+                    onDone={handleDone}
                   />
                 </div>
               ) : (
-                <TaskCard
-                  key={task.task_id}
-                  task={task}
-                  expanded={false}
-                  onToggle={handleToggle}
-                  onComplete={handleCompleteOpen}
-                  completing={false}
-                />
+                <TaskCard key={task.task_id} task={task} onSelect={handleSelect} />
               )
             )}
           </div>
         )}
       </section>
-
-      {/* ── Complete Confirmation Modal ── */}
-      <CompleteModal
-        task={completeTask}
-        open={completeModalOpen}
-        onClose={handleCompleteClose}
-        onConfirm={handleCompleteSubmit}
-        loading={completing}
-        result={completeResult}
-      />
 
       {/* Bottom spacer */}
       <div style={{ height: 20 }} aria-hidden="true" />
