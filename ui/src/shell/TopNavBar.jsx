@@ -14,12 +14,10 @@
  */
 
 import { useNavigate, useLocation } from "react-router-dom";
-import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../AuthContext.jsx";
-import { useNotifications } from "../hooks/useNotifications.js";
+import NotificationBell from "./NotificationBell.jsx";
 import {
   MenuIcon,
-  BellIcon,
   ShieldIcon,
 } from "lucide-react";
 
@@ -27,20 +25,6 @@ export default function TopNavBar() {
   const { user, setDrawerOpen, isAdmin } = useAuth();
   const navigate   = useNavigate();
   const location   = useLocation();
-  const unread     = useNotifications();
-  const prevUnread = useRef(unread);
-  const [bellShake, setBellShake] = useState(false);
-
-  // Shake bell when unread count increases
-  useEffect(() => {
-    if (unread > prevUnread.current && unread > 0) {
-      setBellShake(true);
-      const t = setTimeout(() => setBellShake(false), 700);
-      prevUnread.current = unread;
-      return () => clearTimeout(t);
-    }
-    prevUnread.current = unread;
-  }, [unread]);
 
   const isAdminRoute = location.pathname.startsWith("/admin");
   const initials = user
@@ -95,27 +79,8 @@ export default function TopNavBar() {
 
       {/* ── Right: bell + avatar ── */}
       <div className="dash-nav-right">
-        {/* Notification bell */}
-        <button
-          className="notif-bell-btn"
-          onClick={() => navigate("/notifications")}
-          aria-label={
-            unread > 0
-              ? `Notifications — ${unread} unread`
-              : "Notifications"
-          }
-        >
-          <BellIcon
-            size={20}
-            strokeWidth={2}
-            className={bellShake ? "bell-has-unread" : ""}
-          />
-          {unread > 0 && (
-            <span className="notif-badge" aria-hidden="true">
-              {unread > 99 ? "99+" : unread > 9 ? "9+" : unread}
-            </span>
-          )}
-        </button>
+        {/* Notification bell — standalone, self-polling component */}
+        <NotificationBell />
 
         {/* User chip */}
         <button
