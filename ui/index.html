@@ -5,9 +5,56 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0" />
     <meta name="theme-color" content="#0b0f0d" />
     <meta name="description" content="RENOCORP — earn, complete tasks, and get paid." />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!--
+      ICONS
+      ============================================================
+      FIX: previously referenced /favicon.svg, /apple-touch-icon.png,
+      and /manifest.webmanifest — none of which existed anywhere in
+      the repo (no public/ directory at all), so the browser tab,
+      "Add to Home Screen", and PWA install all silently fell back to
+      generic defaults. All files below are now provided in public/.
+    -->
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!--
+      SOCIAL LINK PREVIEWS (WhatsApp / Telegram / iMessage / Discord /
+      Slack / Facebook / LinkedIn all read Open Graph tags; X/Twitter
+      reads both — the twitter: tags below are its own fallback).
+
+      IMPORTANT — REPLACE THE DOMAIN BELOW:
+      og:image and og:url must be absolute, publicly-reachable HTTPS
+      URLs for WhatsApp's link-preview crawler to fetch them — a
+      relative path like "/og-image.png" will NOT work here (unlike
+      the icon links above, which the browser itself resolves
+      relative to the page it's already loaded). Replace
+      "https://app.renocorp.example" everywhere below with your real
+      production domain before deploying, then verify with:
+        https://developers.facebook.com/tools/debug/  (also works for WhatsApp's cache)
+        https://www.opengraph.xyz/
+      WhatsApp caches previews aggressively per-URL — if you change
+      the image after a link has already been shared once, use the
+      Facebook debugger's "Scrape Again" button to bust that cache.
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="RENOCORP" />
+    <meta property="og:title" content="RENOCORP — Earn. Complete tasks. Get paid." />
+    <meta property="og:description" content="Complete tasks, refer friends, and withdraw straight to mobile money." />
+    <meta property="og:url" content="https://app.renocorp.example/" />
+    <meta property="og:image" content="https://app.renocorp.example/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="RENOCORP logo" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="RENOCORP — Earn. Complete tasks. Get paid." />
+    <meta name="twitter:description" content="Complete tasks, refer friends, and withdraw straight to mobile money." />
+    <meta name="twitter:image" content="https://app.renocorp.example/og-image.png" />
+
     <title>RENOCORP</title>
     <style>
       /* Prevents a white flash before styles.js injects the real theme */
