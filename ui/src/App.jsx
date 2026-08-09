@@ -16,6 +16,7 @@ import { lazy, Suspense } from "react";
 import { AuthProvider, useAuth } from "./AuthContext.jsx";
 import AuthUI from "./AuthUI.jsx";
 import globalStyles from "./styles.js";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 
 // AppShell is lazy-loaded — only parsed by the browser after login.
 // This keeps the initial auth bundle lean.
@@ -70,17 +71,28 @@ function AppInner() {
   }
 
   return (
-    <Suspense fallback={<ShellLoader />}>
-      <AppShell />
-    </Suspense>
+    // P1 fix: a render error anywhere inside AppShell (any one screen,
+    // any one widget) previously unmounted the entire React tree with
+    // no recovery path. This inner boundary contains the blast radius
+    // to "this authenticated view failed to render" instead of "the
+    // whole app is blank" — the outer boundary below is the final
+    // fallback for anything that manages to escape this one (e.g. an
+    // error thrown by useAuth()/AuthProvider itself).
+    <ErrorBoundary>
+      <Suspense fallback={<ShellLoader />}>
+        <AppShell />
+      </Suspense>
+    </ErrorBoundary>
   );
 }
 
 // ─── ROOT ───────────────────────────────────────────────────────────────────
 export default function App() {
   return (
-    <AuthProvider>
-      <AppInner />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <AppInner />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
