@@ -1,0 +1,71 @@
+# .github/workflows/ci.yml — RENOCORP frontend
+# NEW FILE — P2 fix (RENOCORP_PRODUCTION_READINESS.md §5,
+# "Dependency pinning & scanning" + supports §4 P1 item #6/#7).
+# The backend already has ci.yml with pip-audit; the frontend had
+# no CI pipeline at all. Mirrors the same shape: lint → typecheck →
+# test → audit → build, failing the build on any step.
+
+name: frontend-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ui/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "ui/**"
+      - ".github/workflows/ci.yml"
+
+defaults:
+  run:
+    working-directory: ui
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Unit + accessibility tests
+        run: npm run test
+
+      # P2 fix: continuous dependency-CVE scanning for the frontend
+      # (RENOCORP_PRODUCTION_READINESS.md §5: "Add pip-audit / npm
+      # audit / Dependabot to CI to catch CVEs continuously").
+      # --audit-level=high: fails CI on high/critical CVEs in
+      # production dependencies; lower-severity/dev-only findings
+      # are surfaced but don't block the build (tune as the team's
+      # risk tolerance is defined).
+      - name: npm audit (production dependencies, high+ severity)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: renocorp-ui-dist
+          path: ui/dist
+          retention-days: 7
