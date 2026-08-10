@@ -38,6 +38,16 @@ import {
   ZapIcon,
 } from "lucide-react";
 import { formatUGX } from "../utils/formatUGX.js";
+// P2 fix (RENOCORP_PRODUCTION_READINESS.md §5, "i18n/currency"):
+// this file previously hardcoded `reward_usd * 3750` as its own
+// private USD→UGX rate, independent of currencyConverter.js (whose
+// fallback rate is 3675, and which is what every other screen —
+// Rewards, Invite, Profile, Withdraw — actually renders through).
+// Same task, same reward_usd, would show a DIFFERENT UGX amount on
+// the grid card than on the expanded detail view or anywhere else
+// in the app. Routing through the shared converter fixes that and
+// means a future rate update only has to happen in one place.
+import { toUGX } from "../utils/currencyConverter.js";
 
 // ─── SHARED TYPE MAPS (exported so TaskDetail.jsx stays visually in sync) ───
 export const TASK_TYPE_ICONS = {
@@ -116,7 +126,10 @@ const TaskCard = memo(function TaskCard({ task, onSelect }) {
   if (!task) return null;
 
   const typeStyle = getTaskTypeStyle(task.type);
-  const rewardUGX = Math.round((task.reward_usd ?? 0) * 3750);
+  // P2 fix: was `Math.round((task.reward_usd ?? 0) * 3750)` — a
+  // second, drifted USD→UGX rate. Now uses the same conversion
+  // source of truth as the rest of the app.
+  const rewardUGX = toUGX(task.reward_usd ?? 0, "USD");
 
   return (
     <button
