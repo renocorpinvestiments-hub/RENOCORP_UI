@@ -1,0 +1,38 @@
+# .github/dependabot.yml — RENOCORP frontend
+# NEW FILE — P2 fix (RENOCORP_PRODUCTION_READINESS.md §5,
+# "Dependency pinning & scanning"). Mirrors backend_patch's
+# dependabot.yml for the npm ecosystem.
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    groups:
+      security-patches:
+        applies-to: security-updates
+        patterns: ["*"]
+    labels: ["dependencies", "frontend"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: "docker"
+    directory: "/ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "docker"]
+    commit-message:
+      prefix: "chore(docker)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "chore(ci)"
