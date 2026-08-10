@@ -29,10 +29,24 @@ export default defineConfig(({ mode }) => {
       target: "es2020",
       rollupOptions: {
         output: {
-          // Keep the lazy-loaded AppShell (see App.jsx) as its own chunk —
-          // matches the existing lazy() split so first paint stays small.
+          // P2 fix (RENOCORP_PRODUCTION_READINESS.md §5, "Frontend
+          // bundle": "audit whether admin/* (10 files) is
+          // code-split from the main user bundle, since most users
+          // never touch admin views"). AUDIT RESULT: every
+          // admin/*.jsx screen was already behind its own
+          // `lazy(() => import(...))` in shell/AppShell.jsx, so
+          // Rollup was already emitting each as a separate chunk,
+          // fetched only when an admin user navigates to that
+          // route — non-admin users never download any admin code.
+          // This manualChunks addition is a refinement, not a fix:
+          // it groups the ~10 admin screens into ONE "admin" chunk
+          // (instead of ~10 tiny separate chunks) so an admin
+          // navigating between admin screens pays one shared-chunk
+          // fetch instead of many small ones, while still keeping
+          // that entire chunk out of the non-admin bundle.
           manualChunks(id) {
             if (id.includes("node_modules")) return "vendor";
+            if (id.includes("/src/admin/")) return "admin";
           },
         },
       },
