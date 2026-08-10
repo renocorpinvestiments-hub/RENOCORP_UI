@@ -39,6 +39,10 @@ import { useNavigate } from "react-router-dom";
 import { useApi } from "../hooks/useApi.js";
 import { api } from "../api.js";
 import { formatUGX } from "../utils/formatUGX.js";
+// P2 fix (RENOCORP_PRODUCTION_READINESS.md §5, "i18n/currency"):
+// used to convert the real checkin bonus amount instead of a
+// hardcoded display string — see CheckInButton below.
+import { toUGX } from "../utils/currencyConverter.js";
 import { TabBar } from "../components/TabBar.jsx";
 import { EmptyState } from "../components/EmptyState.jsx";
 import { Spinner } from "../components/Spinner.jsx";
@@ -125,6 +129,15 @@ const DailyProgressBar = memo(function DailyProgressBar({ progress }) {
 // ─── CHECK-IN BUTTON ────────────────────────────────────────────────────────
 function CheckInButton({ progress, onCheckin, loading }) {
   const [status, setStatus] = useState("idle"); // idle | loading | success | already
+  // P2 fix: previously the success message was the hardcoded literal
+  // "+UGX 188 check-in bonus earned!" — tied by coincidence to the
+  // backend's current $0.05 bonus at a stale 3750 rate. If the
+  // backend bonus amount ever changes (modules/tasks/service.py
+  // `_CHECKIN_BONUS_USD`), this would silently keep telling users
+  // the old number. Now reads the real `amount_usd` the backend
+  // returns from POST /api/tasks/checkin and converts it through
+  // the shared currency utility.
+  const [earnedUsd, setEarnedUsd] = useState(null);
 
   const available = progress?.checkin_available ?? false;
   const claimed = progress?.checkin_claimed_at != null;
@@ -137,6 +150,7 @@ function CheckInButton({ progress, onCheckin, loading }) {
       if (result?.already_claimed) {
         setStatus("already");
       } else if (result?.success) {
+        setEarnedUsd(typeof result?.amount_usd === "number" ? result.amount_usd : null);
         setStatus("success");
         setTimeout(() => setStatus("idle"), 3000);
       } else {
@@ -157,10 +171,12 @@ function CheckInButton({ progress, onCheckin, loading }) {
   }
 
   if (status === "success") {
+    const bonusLabel =
+      earnedUsd != null ? formatUGX(toUGX(earnedUsd, "USD"), true) : "+your bonus";
     return (
       <div className="checkin-success" aria-live="assertive">
         <StarIcon size={14} strokeWidth={2.5} aria-hidden="true" />
-        +UGX 188 check-in bonus earned!
+        {bonusLabel} check-in bonus earned!
       </div>
     );
   }
