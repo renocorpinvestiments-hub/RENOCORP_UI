@@ -23,7 +23,7 @@
     "lucide-react": "^0.383.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^6.0.5",
     "vite": "^5.4.11",
     "eslint": "^8.57.1",
     "eslint-plugin-react": "^7.37.2",
