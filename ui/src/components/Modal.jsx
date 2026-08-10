@@ -20,10 +20,16 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { XIcon } from "lucide-react";
+import { useBodyScrollLock } from "../hooks/useBodyScrollLock.js";
 
 export function Modal({ open, onClose, title, children, hideHandle = false }) {
   const sheetRef  = useRef(null);
   const titleId   = useRef(`modal-title-${Math.random().toString(36).slice(2)}`);
+
+  // P2 fix: this docstring has claimed "Body scroll lock" since
+  // v2.0 but no code ever implemented it — see
+  // hooks/useBodyScrollLock.js for the full rationale.
+  useBodyScrollLock(open);
 
   // Focus trap
   useEffect(() => {
