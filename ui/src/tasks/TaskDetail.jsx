@@ -40,6 +40,9 @@ import {
 import { Modal } from "../components/Modal.jsx";
 import { Spinner } from "../components/Spinner.jsx";
 import { formatUGX } from "../utils/formatUGX.js";
+// P2 fix (same rationale as TaskCard.jsx): route through the shared
+// converter instead of a private hardcoded rate.
+import { toUGX } from "../utils/currencyConverter.js";
 import { getTaskTypeStyle, TaskTypeIcon } from "./TaskCard.jsx";
 
 // ─── SCOPED STYLE INJECTION (idempotent) ────────────────────────────────────
@@ -106,7 +109,7 @@ export default function TaskDetail({ task, onCollapse, onComplete, onDone }) {
   if (!task) return null;
 
   const typeStyle = getTaskTypeStyle(task.type);
-  const rewardUGX = Math.round((task.reward_usd ?? 0) * 3750);
+  const rewardUGX = toUGX(task.reward_usd ?? 0, "USD");
 
   return (
     <div className="rc-td" aria-expanded="true">
