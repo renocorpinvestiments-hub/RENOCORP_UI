@@ -20,7 +20,7 @@ COPY . .
 RUN npm run build
 
 # ── Stage 2: runtime (static hosting, no Node.js present) ──────
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.31-alpine AS runtime
 
 RUN addgroup -S app && adduser -S app -G app
 
