@@ -17,6 +17,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../AuthContext.jsx";
+import { useBodyScrollLock } from "../hooks/useBodyScrollLock.js";
 import {
   XIcon,
   HomeIcon,
@@ -72,6 +73,10 @@ export default function SideDrawer() {
   const location  = useLocation();
   const drawerRef = useRef(null);
   const closeBtn  = useRef(null);
+
+  // P2 fix: same gap as Modal.jsx — "Body scroll lock while open"
+  // was documented but never implemented.
+  useBodyScrollLock(drawerOpen);
 
   // ── Close on route change ──────────────────────────────────────────────
   useEffect(() => {
