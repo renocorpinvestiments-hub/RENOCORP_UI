@@ -74,11 +74,24 @@ function OverviewPanel() {
 
   const enabled = config?.enabled ?? false;
 
-  const applyToggle = useCallback(async (nextEnabled) => {
+  const applyToggle = useCallback(async () => {
     setToggling(true);
     setToggleError(null);
     try {
-      await api.admin.toggleReferralSystem(nextEnabled);
+      // P1 FIX (audit finding #8): api.admin.toggleReferralSystem(...)
+      // never existed in api.js — every click threw
+      // `TypeError: api.admin.toggleReferralSystem is not a function`.
+      // The real, working binding is api.admin.toggleReferrals() —
+      // note NO argument: POST /api/referrals/admin/config/toggle
+      // takes an empty body and just flips the server's current
+      // enabled/disabled state, it does not accept a target value.
+      // The `nextEnabled` parameter this function used to take was
+      // therefore always silently discarded even before this fix (it
+      // happened to still "work" only because every call site here
+      // already passes the value that represents the correct flip of
+      // the current state) — removed to stop implying this endpoint
+      // can be told what state to end up in.
+      await api.admin.toggleReferrals();
       await reloadConfig();
     } catch (e) {
       setToggleError(e.message ?? 'Could not update the referral system.');
@@ -91,7 +104,7 @@ function OverviewPanel() {
     if (enabled) {
       setConfirmToggleOff(true);
     } else {
-      applyToggle(true);
+      applyToggle();
     }
   };
 
@@ -151,7 +164,7 @@ function OverviewPanel() {
         onCancel={() => setConfirmToggleOff(false)}
         onConfirm={async () => {
           setConfirmToggleOff(false);
-          await applyToggle(false);
+          await applyToggle();
         }}
       />
     </>
