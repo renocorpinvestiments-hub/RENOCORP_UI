@@ -54,6 +54,12 @@ export const URLS = Object.freeze({
   ADMIN:        _url("/admin"),
   INVITATIONS:  _url("/invitations"),
   VAULT:        _url("/vault"),
+  // P0 FIX (audit finding #7): modules/broadcasts/broadcasts.py is a
+  // full, working backend module (11 endpoints at /api/broadcasts/*)
+  // that had NO base URL constant and NO api.js namespace at all —
+  // completely disconnected from the frontend. See the `broadcasts`
+  // namespace below.
+  BROADCASTS:   _url("/broadcasts"),
 });
 
 // ─── IN-MEMORY TOKEN STORE ──────────────────────────────────────────────────
@@ -461,6 +467,38 @@ export const api = Object.freeze({
     audit:       ()             => authedFetch(`${URLS.VAULT}/audit`),
   }),
 
+  // ── BROADCASTS ────────────────────────────────────────────────────────────
+  // P0 FIX (audit finding #7): modules/broadcasts/broadcasts.py — a full,
+  // working backend module (persistent, pinnable announcements with read
+  // receipts) — had zero wiring anywhere in this file. Paths verified
+  // directly against modules/broadcasts/broadcasts.py's @router decorators.
+  // NOTE: this module uses cursor-based pagination (`next_cursor`/
+  // `has_more`), not page/limit like most other admin list endpoints here —
+  // `feed`/`admin.feed` take an optional opaque cursor string, not a page
+  // number.
+  broadcasts: Object.freeze({
+    // User-facing
+    feed:     (cursor)     => authedFetch(`${URLS.BROADCASTS}/feed${qs(cursor ? { cursor } : {})}`),
+    live:     ()           => authedFetch(`${URLS.BROADCASTS}/live`),
+    markRead: (body)       => authedFetch(`${URLS.BROADCASTS}/read`, { method: "POST", body: JSON.stringify(body) }),
+    receipts: (id)         => authedFetch(`${URLS.BROADCASTS}/${id}/receipts`),
+
+    // Admin: publish / edit / delete / pin
+    // `type` must be one of "text" | "photo" | "video" | "document" | "audio"
+    // (modules/broadcasts/broadcasts.py::BroadcastType). `caption` is
+    // required when type is "text". `idempotency_key` is required —
+    // generate one with utils/idempotency.js::newIdempotencyKey() per send.
+    create: (body)      => authedFetch(`${URLS.BROADCASTS}`,          { method: "POST",   body: JSON.stringify(body) }),
+    update: (id, body)  => authedFetch(`${URLS.BROADCASTS}/${id}`,    { method: "PATCH",  body: JSON.stringify(body) }),
+    remove: (id)        => authedFetch(`${URLS.BROADCASTS}/${id}`,    { method: "DELETE" }),
+    pin:    (id)        => authedFetch(`${URLS.BROADCASTS}/${id}/pin`,{ method: "POST",   body: "{}" }),
+
+    admin: Object.freeze({
+      stats: ()        => authedFetch(`${URLS.BROADCASTS}/admin/stats`),
+      feed:  (cursor)  => authedFetch(`${URLS.BROADCASTS}/admin/feed${qs(cursor ? { cursor } : {})}`),
+    }),
+  }),
+
   // ── ADMIN ─────────────────────────────────────────────────────────────────
   admin: Object.freeze({
     // Dashboard
@@ -469,7 +507,22 @@ export const api = Object.freeze({
 
     // Users
     users:      (params)      => authedFetch(`${URLS.ADMIN}/users${qs(params)}`),
-    userProfile:(id)          => authedFetch(`${URLS.ADMIN}/users/${id}/profile`),
+    // P1 FIX (audit finding #9): this pointed at
+    // `${URLS.ADMIN}/users/${id}/profile` → /api/admin/users/{id}/profile,
+    // which does not exist on either backend router. modules/admin/routes.py
+    // has no per-user profile endpoint at all; the real one lives in
+    // modules/users/routes.py's admin sub-routes, mounted under that
+    // module's OWN prefix (/api/users), not /api/admin — a second,
+    // independent "admin user management" surface. Not currently called by
+    // any component (which is why this went unnoticed), but would have
+    // 404'd the instant something used it. Points at the real, working
+    // path now: GET /api/users/admin/{user_id}/profile.
+    userProfile:(id)          => authedFetch(`${URLS.USERS}/admin/${id}/profile`),
+    // Same duplicate-surface issue as userProfile above — the working
+    // implementation is modules/users/routes.py's
+    // GET /api/users/admin/{user_id}/balance, not anything under
+    // /api/admin. Added here since nothing previously exposed it at all.
+    userBalance:(id)          => authedFetch(`${URLS.USERS}/admin/${id}/balance`),
     updateUser: (id, body)    => authedFetch(`${URLS.ADMIN}/users/${id}`,         { method: "PATCH", body: JSON.stringify(body) }),
     creditUser: (id, body)    => authedFetch(`${URLS.ADMIN}/users/${id}/credit`,  { method: "POST",  body: JSON.stringify(body) }),
     debitUser:  (id, body)    => authedFetch(`${URLS.ADMIN}/users/${id}/debit`,   { method: "POST",  body: JSON.stringify(body) }),
