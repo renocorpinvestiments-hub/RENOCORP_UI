@@ -1,7 +1,7 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
-  Lock, ShieldCheck, ShieldAlert, Eye, EyeOff, RefreshCw, Trash2,
-  Plus, Copy, Check, X, ChevronLeft, ChevronRight, Activity,
+  ShieldCheck, ShieldAlert, RefreshCw, Trash2,
+  Plus, Check, X, ChevronLeft, ChevronRight, Activity,
 } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { api } from '../api';
@@ -15,7 +15,6 @@ import { EmptyState } from '../components/EmptyState';
 import { Badge } from '../components/Badge';
 
 const PAGE_SIZE = 20;
-const REVEAL_TTL_MS = 20_000;
 
 const CRED_STATUS_BADGE = {
   active:   { tone: 'success', label: 'Active' },
@@ -139,7 +138,12 @@ function CredentialGroupCard({ group, onChanged }) {
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await api.admin.testCredentialGroup(group.name);
+      // P1 FIX (audit finding #6): api.admin.testCredentialGroup(...)
+      // never existed in api.js — calling it threw
+      // `TypeError: api.admin.testCredentialGroup is not a function`
+      // on every click. api.admin.vaultTest(group) is the real,
+      // working binding (POST /api/vault/test/{group}).
+      const res = await api.admin.vaultTest(group.name);
       setTestResult({ ok: res?.ok ?? true, message: res?.message ?? 'Connection succeeded.' });
     } catch (e) {
       setTestResult({ ok: false, message: e.message ?? 'Connection test failed.' });
@@ -205,70 +209,53 @@ function CredentialGroupCard({ group, onChanged }) {
 }
 
 function CredentialRow({ group, credential, onChanged }) {
-  const [revealed, setRevealed] = useState(null); // string | null
-  const [revealOpen, setRevealOpen] = useState(false);
-  const [password, setPassword] = useState('');
-  const [revealSubmitting, setRevealSubmitting] = useState(false);
-  const [revealError, setRevealError] = useState(null);
-  const [copied, setCopied] = useState(false);
+  // P1 FIX (audit finding #6): this component previously called
+  // `api.admin.revealCredential(group, key, password)` to fetch a
+  // decrypted credential value back into the browser. That function
+  // never existed in api.js, so every click threw a TypeError — but
+  // more importantly, there is no backend endpoint that could have
+  // backed it even if the binding had been correct.
+  //
+  // modules/vault/routes.py's own module docstring states as an
+  // architecture rule: "NO decryption in this file" and "Values are
+  // NEVER in any response body". modules/vault/models.py's
+  // CredentialRecord goes further and hard-codes the value field:
+  //   value_masked: str = _MASKED_VALUE   # always "***"
+  //   """value_masked is always "***" — never the real value."""
+  // i.e. this isn't a missing feature, it's a deliberate,
+  // deeply-embedded security boundary: this backend does not have a
+  // code path that ever serializes a decrypted secret into an HTTP
+  // response, by design (consistent with how most secrets managers —
+  // e.g. AWS Secrets Manager's console — treat "view value" as a
+  // privileged, audited, separate action, and many treat secrets as
+  // rotate-only, never re-displayed, which is the stance this backend
+  // has taken).
+  //
+  // Building a reveal endpoint to match this removed UI would mean
+  // *weakening* that existing guarantee, which is a deliberate
+  // security/product decision for your team to make explicitly — not
+  // something to bolt on silently while fixing a broken button. Until
+  // that decision is made, the honest fix is to remove the "reveal"
+  // affordance so the UI stops promising something the backend
+  // intentionally never provides, and let admins rotate a credential
+  // (which this panel already supports) when its value needs to
+  // change.
   const [rotating, setRotating] = useState(false);
   const [rotateError, setRotateError] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const hideTimer = useRef(null);
-
-  useEffect(() => () => clearTimeout(hideTimer.current), []);
 
   const badge = CRED_STATUS_BADGE[credential.status] ?? { tone: 'info', label: credential.status ?? 'Unknown' };
-
-  const openReveal = () => {
-    setPassword('');
-    setRevealError(null);
-    setRevealOpen(true);
-  };
-
-  const confirmReveal = async () => {
-    if (!password) {
-      setRevealError('Enter your password to reveal this value.');
-      return;
-    }
-    setRevealSubmitting(true);
-    setRevealError(null);
-    try {
-      const res = await api.admin.revealCredential(group, credential.key, password);
-      setRevealed(res?.value ?? '');
-      setRevealOpen(false);
-      clearTimeout(hideTimer.current);
-      hideTimer.current = setTimeout(() => setRevealed(null), REVEAL_TTL_MS);
-    } catch (e) {
-      setRevealError(e.message ?? 'Could not verify your password.');
-    } finally {
-      setRevealSubmitting(false);
-    }
-  };
-
-  const hideValue = () => {
-    clearTimeout(hideTimer.current);
-    setRevealed(null);
-  };
-
-  const copyValue = async () => {
-    if (!revealed) return;
-    try {
-      await navigator.clipboard.writeText(revealed);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard unavailable — no-op, value is still visible on screen
-    }
-  };
 
   const rotate = async () => {
     setRotating(true);
     setRotateError(null);
     try {
-      await api.admin.rotateCredential(group, credential.key);
-      hideValue();
+      // P1 FIX (audit finding #6): api.admin.rotateCredential(...)
+      // never existed in api.js. api.admin.vaultRotate(group, key) is
+      // the real, working binding
+      // (POST /api/vault/credentials/{group}/{key}/rotate).
+      await api.admin.vaultRotate(group, credential.key);
       onChanged();
     } catch (e) {
       setRotateError(e.message ?? 'Rotation failed.');
@@ -280,7 +267,11 @@ function CredentialRow({ group, credential, onChanged }) {
   const doDelete = async () => {
     setDeleting(true);
     try {
-      await api.admin.deleteCredential(group, credential.key);
+      // P1 FIX (audit finding #6): api.admin.deleteCredential(...)
+      // never existed in api.js. api.admin.vaultRemove(group, key) is
+      // the real, working binding
+      // (DELETE /api/vault/credentials/{group}/{key}).
+      await api.admin.vaultRemove(group, credential.key);
       setConfirmDelete(false);
       onChanged();
     } catch (e) {
@@ -295,23 +286,15 @@ function CredentialRow({ group, credential, onChanged }) {
     <tr>
       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{credential.key}</td>
       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span>{revealed ?? credential.masked ?? '••••••••'}</span>
-          {revealed ? (
-            <>
-              <button className="link-btn" onClick={copyValue} aria-label="Copy value" style={{ padding: 2 }}>
-                {copied ? <Check size={14} /> : <Copy size={14} />}
-              </button>
-              <button className="link-btn" onClick={hideValue} aria-label="Hide value" style={{ padding: 2 }}>
-                <EyeOff size={14} />
-              </button>
-            </>
-          ) : (
-            <button className="link-btn" onClick={openReveal} aria-label="Reveal value" style={{ padding: 2 }}>
-              <Eye size={14} />
-            </button>
-          )}
-        </div>
+        {/* Values are never returned by the backend — see the P1 FIX
+            note above CredentialRow. Rotate to replace a value; there
+            is intentionally no way to view an existing one. */}
+        <span
+          title="Credential values are never displayed after creation. Rotate to replace this value."
+          style={{ color: 'var(--text-muted)' }}
+        >
+          {credential.masked ?? '••••••••'}
+        </span>
       </td>
       <td><Badge tone={badge.tone}>{badge.label}</Badge></td>
       <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>
@@ -331,19 +314,6 @@ function CredentialRow({ group, credential, onChanged }) {
         {rotateError && <div style={{ color: 'var(--danger)', fontSize: 11, marginTop: 4 }}>{rotateError}</div>}
       </td>
 
-      {revealOpen && (
-        <PasswordGateModal
-          open={revealOpen}
-          submitting={revealSubmitting}
-          error={revealError}
-          password={password}
-          onPasswordChange={setPassword}
-          onCancel={() => setRevealOpen(false)}
-          onConfirm={confirmReveal}
-          keyLabel={credential.key}
-        />
-      )}
-
       <ConfirmDialog
         open={confirmDelete}
         title="Delete credential?"
@@ -354,35 +324,6 @@ function CredentialRow({ group, credential, onChanged }) {
         onConfirm={doDelete}
       />
     </tr>
-  );
-}
-
-function PasswordGateModal({ open, submitting, error, password, onPasswordChange, onCancel, onConfirm, keyLabel }) {
-  return (
-    <Modal open={open} onClose={() => !submitting && onCancel()} title="Confirm your identity">
-      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 }}>
-        Re-enter your password to reveal <strong style={{ color: 'var(--text)' }}>{keyLabel}</strong>.
-        It will be hidden automatically after {REVEAL_TTL_MS / 1000} seconds.
-      </p>
-      <input
-        autoFocus
-        type="password"
-        className="admin-input"
-        style={{ width: '100%' }}
-        placeholder="Your password"
-        value={password}
-        onChange={(e) => onPasswordChange(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') onConfirm(); }}
-      />
-      {error && <div className="alert alert-error" style={{ marginTop: 12 }}>{error}</div>}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
-        <button className="link-btn" disabled={submitting} onClick={onCancel}>Cancel</button>
-        <button className="btn-primary" disabled={submitting} onClick={onConfirm}>
-          <Lock size={13} style={{ marginRight: 6 }} />
-          {submitting ? 'Verifying…' : 'Reveal'}
-        </button>
-      </div>
-    </Modal>
   );
 }
 
@@ -428,7 +369,10 @@ function AddCredentialModal({ open, onClose, onAdded }) {
     setSubmitting(true);
     setError(null);
     try {
-      await api.admin.addCredential({
+      // P1 FIX (audit finding #6): api.admin.addCredential(...) never
+      // existed in api.js. api.vault.add(body) is the real, working
+      // binding (POST /api/vault/credentials).
+      await api.vault.add({
         group: group.trim(),
         key: key.trim(),
         value,
