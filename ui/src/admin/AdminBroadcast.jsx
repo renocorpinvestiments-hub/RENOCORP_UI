@@ -1,39 +1,73 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
-  Megaphone, Send, Check, CheckCheck, Clock, Users, Bell, Mail,
-  MessageSquare, Search, X, ChevronDown, AlertTriangle,
+  Megaphone, Send, Check, CheckCheck, Pin, Users, MessageSquare,
+  Search, X, AlertTriangle,
 } from 'lucide-react';
 import { useApi } from '../hooks/useApi';
 import { api } from '../api';
+import { newIdempotencyKey } from '../utils/idempotency';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { Spinner } from '../components/Spinner';
 import { EmptyState } from '../components/EmptyState';
 
-const PAGE_SIZE = 30;
+/**
+ * admin/AdminBroadcast.jsx
+ * =========================
+ * P0 FIX (audit findings #7): this panel previously called
+ * `api.admin.broadcastStats()` and `api.admin.broadcastHistory()` —
+ * neither existed anywhere in api.js, so both calls threw
+ * `TypeError: ... is not a function` on every load, and the "send"
+ * action posted through the NOTIFICATIONS module's push-broadcast
+ * (`api.admin.broadcast` → POST /api/notifications/admin/broadcast)
+ * instead of the actual, fully-built `modules/broadcasts/broadcasts.py`
+ * backend module (11 endpoints at /api/broadcasts/*: create, edit,
+ * delete, pin, receipts, admin stats, admin feed, public feed,
+ * mark-read, live feed) — which had ZERO frontend wiring anywhere in
+ * this codebase (no `URLS.BROADCASTS`, no `api.broadcasts` namespace).
+ *
+ * This rewrite wires this panel to the real broadcasts module end to
+ * end — read (stats/feed) AND write (send) both now go through
+ * `api.broadcasts.*` (see api.js), which is required for correctness,
+ * not just style: fixing only the read side while leaving "send" on
+ * the notifications module would mean a freshly-sent message would
+ * never appear when the feed reloads, since notifications' push
+ * history and broadcasts' persisted feed are two unrelated tables.
+ *
+ * This also means the DATA SHAPE changed. The broadcasts module has
+ * no delivery tracking (no `delivered_count`/`recipients_count`/
+ * `channel`), no per-user targeting on a broadcast itself, and uses
+ * `caption` (not `body`) + a unix-epoch `created_at` (not an ISO
+ * `sent_at` string) + cursor pagination (not page/limit) + a `pinned`
+ * flag + a Redis-backed `read_count`. Every render below reflects the
+ * real `BroadcastRecord` / `AdminBroadcastStats` / `BroadcastFeedPage`
+ * shapes (see modules/broadcasts/broadcasts.py) instead of the
+ * notifications-shaped fields (`delivery_rate`, `read_rate`,
+ * `delivered_count`, `target_type`, ...) the old version rendered.
+ *
+ * "Direct message to one user" is INTENTIONALLY kept on the
+ * notifications module (`api.admin.notifyUser`) — the broadcasts
+ * module's `CreateBroadcastRequest` has no per-user target field at
+ * all, it is broadcast-to-everyone by design. Since a direct push is
+ * not a broadcast, it is not added to the broadcast thread below (it
+ * would vanish on reload, since it was never persisted as a
+ * BroadcastRecord) — it gets its own lightweight inline confirmation
+ * instead of a bubble in this feed.
+ */
 
-const CHANNELS = [
-  { key: 'all',   label: 'All channels', icon: Users },
-  { key: 'push',  label: 'Push',         icon: Bell },
-  { key: 'email', label: 'Email',        icon: Mail },
-  { key: 'sms',   label: 'SMS',          icon: MessageSquare },
-];
+const MAX_CAPTION_LEN = 2000; // mirrors backend's CreateBroadcastRequest.caption max_length intent
 
-function channelMeta(key) {
-  return CHANNELS.find((c) => c.key === key) ?? CHANNELS[0];
-}
-
-function formatClock(iso) {
-  if (!iso) return '';
+function formatClock(unixSeconds) {
+  if (!unixSeconds) return '';
   try {
-    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return new Date(unixSeconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   } catch {
     return '';
   }
 }
 
-function dayLabel(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
+function dayLabel(unixSeconds) {
+  if (!unixSeconds) return '';
+  const d = new Date(unixSeconds * 1000);
   const today = new Date();
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
@@ -47,71 +81,120 @@ function dayLabel(iso) {
  * ROOT
  * ──────────────────────────────────────────────────────────── */
 export default function AdminBroadcast() {
-  const [page, setPage] = useState(1);
-  const params = useMemo(() => ({ page, limit: PAGE_SIZE }), [page]);
+  // Cursor-based pagination, matching BroadcastFeedPage's actual
+  // shape (`next_cursor` / `has_more`) — NOT page/limit, which the
+  // old version incorrectly assumed.
+  const [cursor, setCursor] = useState(null);
+  const [items, setItems] = useState([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [feedError, setFeedError] = useState(null);
+  const [reloadTick, setReloadTick] = useState(0);
 
-  const { data: stats } = useApi(() => api.admin.broadcastStats(), []);
-  const { data, loading, error, reload } = useApi(() => api.admin.broadcastHistory(params), [params]);
+  const { data: stats } = useApi(() => api.broadcasts.admin.stats(), [reloadTick]);
 
-  const [pending, setPending] = useState(null); // optimistic in-flight message
+  const [pending, setPending] = useState(null); // optimistic in-flight broadcast
+  const [directNotice, setDirectNotice] = useState(null); // { ok, message } for direct-send mode
   const threadRef = useRef(null);
 
-  const items = data?.items ?? [];
-  const hasMore = (data?.total ?? 0) > page * PAGE_SIZE;
+  const loadFirstPage = useCallback(async () => {
+    setInitialLoading(true);
+    setFeedError(null);
+    try {
+      const page = await api.broadcasts.admin.feed();
+      setItems(page?.items ?? []);
+      setCursor(page?.next_cursor ?? null);
+      setHasMore(!!page?.has_more);
+    } catch (e) {
+      setFeedError(e.message ?? 'Could not load broadcasts.');
+    } finally {
+      setInitialLoading(false);
+    }
+  }, []);
 
-  const scrollToBottom = useCallback(() => {
+  useEffect(() => { loadFirstPage(); }, [loadFirstPage, reloadTick]);
+
+  const loadMore = async () => {
+    if (!hasMore || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await api.broadcasts.admin.feed(cursor);
+      setItems((prev) => [...prev, ...(page?.items ?? [])]);
+      setCursor(page?.next_cursor ?? null);
+      setHasMore(!!page?.has_more);
+    } catch (e) {
+      setFeedError(e.message ?? 'Could not load more broadcasts.');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const scrollToTop = useCallback(() => {
     requestAnimationFrame(() => {
-      if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
+      if (threadRef.current) threadRef.current.scrollTop = 0;
     });
   }, []);
 
-  useEffect(() => { scrollToBottom(); }, [items.length, scrollToBottom]);
-
-  const handleSent = useCallback(() => {
+  const handleBroadcastSent = useCallback(() => {
     setPending(null);
-    setPage(1);
-    reload();
-    scrollToBottom();
-  }, [reload, scrollToBottom]);
+    setReloadTick((t) => t + 1);
+    scrollToTop();
+  }, [scrollToTop]);
 
   return (
     <div className="wa-shell">
       <WaHeader stats={stats} />
 
       <div className="wa-thread" ref={threadRef}>
-        {loading && page === 1 && (
+        {initialLoading && (
           <div style={{ padding: 40, textAlign: 'center' }}><Spinner /></div>
         )}
 
-        {!loading && error && (
+        {!initialLoading && feedError && (
           <div className="alert alert-error" style={{ margin: 16 }}>
-            {error}
-            <button className="link-btn" style={{ marginLeft: 12 }} onClick={reload}>Retry</button>
+            {feedError}
+            <button className="link-btn" style={{ marginLeft: 12 }} onClick={loadFirstPage}>Retry</button>
           </div>
         )}
 
-        {!loading && !error && items.length === 0 && !pending && (
+        {!initialLoading && !feedError && items.length === 0 && !pending && (
           <div style={{ padding: '60px 20px' }}>
-            <EmptyState message="No broadcasts sent yet. Your first message will appear here." />
-          </div>
-        )}
-
-        {hasMore && !loading && (
-          <div style={{ textAlign: 'center', marginBottom: 12 }}>
-            <button className="link-btn" onClick={() => setPage((p) => p + 1)}>Load earlier messages</button>
+            <EmptyState message="No broadcasts sent yet. Your first announcement will appear here." />
           </div>
         )}
 
         <Thread items={items} pending={pending} />
+
+        {hasMore && !initialLoading && (
+          <div style={{ textAlign: 'center', margin: '12px 0' }}>
+            <button className="link-btn" disabled={loadingMore} onClick={loadMore}>
+              {loadingMore ? 'Loading…' : 'Load older broadcasts'}
+            </button>
+          </div>
+        )}
       </div>
 
-      <Composer onSent={handleSent} onPending={setPending} />
+      <Composer
+        onBroadcastSent={handleBroadcastSent}
+        onBroadcastPending={setPending}
+        onDirectResult={setDirectNotice}
+      />
+
+      {directNotice && (
+        <div
+          className={`alert ${directNotice.ok ? 'alert-success' : 'alert-error'}`}
+          style={{ margin: '0 14px 12px' }}
+        >
+          {directNotice.message}
+        </div>
+      )}
     </div>
   );
 }
 
 /* ────────────────────────────────────────────────────────────
- * HEADER — channel identity + delivery stats
+ * HEADER — channel identity + real AdminBroadcastStats fields
  * ──────────────────────────────────────────────────────────── */
 function WaHeader({ stats }) {
   return (
@@ -121,8 +204,8 @@ function WaHeader({ stats }) {
         <div className="wa-header-title">Broadcast Channel</div>
         <div className="wa-header-sub">
           {stats
-            ? `${stats.total_sent ?? 0} sent · ${stats.delivery_rate != null ? Math.round(stats.delivery_rate * 100) : '—'}% delivered · ${stats.read_rate != null ? Math.round(stats.read_rate * 100) : '—'}% read`
-            : 'Messages to every RENOCORP user'}
+            ? `${stats.total_broadcasts ?? 0} total · ${stats.published_today ?? 0} today · ${stats.total_reads_today ?? 0} reads today · ${stats.pinned_count ?? 0} pinned`
+            : 'Announcements to every RENOCORP user'}
         </div>
       </div>
     </div>
@@ -137,7 +220,7 @@ function Thread({ items, pending }) {
     const groups = [];
     let lastLabel = null;
     for (const item of items) {
-      const label = dayLabel(item.sent_at ?? item.created_at);
+      const label = dayLabel(item.created_at);
       if (label !== lastLabel) {
         groups.push({ type: 'divider', label, key: `div-${item.id}` });
         lastLabel = label;
@@ -149,12 +232,12 @@ function Thread({ items, pending }) {
 
   return (
     <div className="wa-thread-inner">
+      {pending && <Bubble entry={pending} isPending />}
       {grouped.map((g) =>
         g.type === 'divider'
           ? <DayDivider key={g.key} label={g.label} />
           : <Bubble key={g.key} entry={g.item} />
       )}
-      {pending && <Bubble entry={pending} isPending />}
     </div>
   );
 }
@@ -168,49 +251,38 @@ function DayDivider({ label }) {
 }
 
 function Bubble({ entry, isPending }) {
-  const meta = channelMeta(entry.channel ?? 'all');
-  const ChannelIcon = meta.icon;
-  const failed = entry.status === 'failed';
-
-  const targetLabel = entry.target_type === 'user'
-    ? `To ${entry.target_user_name ?? 'one user'}`
-    : `To all users`;
-
-  let ReceiptIcon = Clock;
-  let receiptColor = 'var(--text-muted)';
-  if (!isPending && !failed) {
-    if ((entry.read_count ?? 0) > 0) {
-      ReceiptIcon = CheckCheck;
-      receiptColor = 'var(--info)';
-    } else if ((entry.delivered_count ?? 0) > 0) {
-      ReceiptIcon = CheckCheck;
-      receiptColor = 'var(--text-muted)';
-    } else if (entry.status === 'sent') {
-      ReceiptIcon = Check;
-      receiptColor = 'var(--text-muted)';
-    }
-  }
+  const failed = entry.status === 'failed'; // only ever true for the local optimistic `pending` entry
+  const deleted = entry.status === 'deleted';
 
   return (
     <div className="wa-row">
       <div className={`wa-bubble ${failed ? 'wa-bubble-failed' : ''} ${isPending ? 'wa-bubble-pending' : ''}`}>
         <div className="wa-bubble-meta">
-          <ChannelIcon size={11} />
-          <span>{targetLabel}</span>
-        </div>
-        {entry.title && <div className="wa-bubble-title">{entry.title}</div>}
-        <div className="wa-bubble-body">{entry.body}</div>
-        <div className="wa-bubble-footer">
-          {entry.recipients_count != null && (
-            <span className="wa-bubble-count">
-              {entry.delivered_count ?? 0}/{entry.recipients_count} delivered
+          <Users size={11} />
+          <span>To all users</span>
+          {entry.pinned && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 6 }}>
+              <Pin size={10} /> Pinned
             </span>
           )}
-          <span className="wa-bubble-time">{isPending ? 'Sending…' : formatClock(entry.sent_at ?? entry.created_at)}</span>
+        </div>
+        {entry.title && <div className="wa-bubble-title">{entry.title}</div>}
+        <div className="wa-bubble-body">
+          {deleted ? <em style={{ color: 'var(--text-muted)' }}>Broadcast deleted</em> : (entry.caption ?? entry.body)}
+        </div>
+        <div className="wa-bubble-footer">
+          {!isPending && !deleted && (
+            <span className="wa-bubble-count">{entry.read_count ?? 0} read</span>
+          )}
+          <span className="wa-bubble-time">
+            {isPending ? 'Sending…' : formatClock(entry.created_at)}
+          </span>
           {failed ? (
             <AlertTriangle size={13} color="var(--danger)" />
+          ) : isPending ? (
+            <Check size={14} color="var(--text-muted)" />
           ) : (
-            <ReceiptIcon size={14} color={receiptColor} />
+            <CheckCheck size={14} color={(entry.read_count ?? 0) > 0 ? 'var(--info)' : 'var(--text-muted)'} />
           )}
         </div>
       </div>
@@ -219,13 +291,13 @@ function Bubble({ entry, isPending }) {
 }
 
 /* ────────────────────────────────────────────────────────────
- * COMPOSER — mode toggle (broadcast / direct), channel chips, send
+ * COMPOSER — mode toggle (broadcast / direct), pin option, send
  * ──────────────────────────────────────────────────────────── */
-function Composer({ onSent, onPending }) {
+function Composer({ onBroadcastSent, onBroadcastPending, onDirectResult }) {
   const [mode, setMode] = useState('broadcast'); // 'broadcast' | 'direct'
-  const [channel, setChannel] = useState('all');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [pin, setPin] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -237,7 +309,10 @@ function Composer({ onSent, onPending }) {
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const searchTimer = useRef(null);
 
-  const canSend = body.trim().length > 0 && (mode === 'broadcast' || !!targetUser) && !sending;
+  const canSend = body.trim().length > 0
+    && body.trim().length <= MAX_CAPTION_LEN
+    && (mode === 'broadcast' || !!targetUser)
+    && !sending;
 
   useEffect(() => {
     if (mode === 'direct' && userQuery.trim().length >= 2) {
@@ -263,7 +338,7 @@ function Composer({ onSent, onPending }) {
   const resetComposer = () => {
     setTitle('');
     setBody('');
-    setChannel('all');
+    setPin(false);
     setTargetUser(null);
     setUserQuery('');
     setUserResults([]);
@@ -275,29 +350,53 @@ function Composer({ onSent, onPending }) {
     setConfirmOpen(false);
     setSending(true);
 
+    if (mode === 'direct') {
+      // Direct pushes are NOT broadcasts — the broadcasts module has
+      // no per-user target field, so this can only ever go through
+      // notifications' single-user push. It is intentionally not
+      // added to the thread above (it wouldn't survive a reload,
+      // since it's never persisted as a BroadcastRecord).
+      onDirectResult(null);
+      try {
+        await api.admin.notifyUser(targetUser.id, {
+          title: title.trim() || undefined,
+          body: body.trim(),
+        });
+        onDirectResult({ ok: true, message: `Sent to ${targetUser.name ?? targetUser.email}.` });
+        resetComposer();
+      } catch (e) {
+        onDirectResult({ ok: false, message: e.message ?? 'Could not send this message.' });
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    // Broadcast mode — persisted, appears in the feed on reload.
     const draft = {
       id: `pending-${Date.now()}`,
       title: title.trim() || null,
-      body: body.trim(),
-      channel,
-      target_type: mode === 'direct' ? 'user' : 'all',
-      target_user_name: targetUser?.name ?? targetUser?.email,
-      created_at: new Date().toISOString(),
+      caption: body.trim(),
+      pinned: pin,
+      created_at: Math.floor(Date.now() / 1000),
       status: 'sending',
     };
-    onPending(draft);
+    onBroadcastPending(draft);
 
     try {
-      if (mode === 'direct') {
-        await api.admin.notifyUser(targetUser.id, { title: title.trim() || undefined, body: body.trim() });
-      } else {
-        await api.admin.broadcast({ title: title.trim() || undefined, body: body.trim(), channel });
-      }
+      await api.broadcasts.create({
+        type: 'text',
+        caption: body.trim(),
+        title: title.trim() || undefined,
+        media: [],
+        pin,
+        idempotency_key: newIdempotencyKey(),
+      });
       resetComposer();
-      onSent();
+      onBroadcastSent();
     } catch (e) {
-      onPending(null);
-      setError(e.message ?? 'Could not send this message. It has not been delivered.');
+      onBroadcastPending(null);
+      setError(e.message ?? 'Could not send this broadcast. It has not been delivered.');
     } finally {
       setSending(false);
     }
@@ -330,21 +429,13 @@ function Composer({ onSent, onPending }) {
       </div>
 
       {mode === 'broadcast' && (
-        <div className="wa-channel-row">
-          {CHANNELS.map((c) => {
-            const Icon = c.icon;
-            const active = channel === c.key;
-            return (
-              <button
-                key={c.key}
-                className={`wa-chip ${active ? 'active' : ''}`}
-                onClick={() => setChannel(c.key)}
-              >
-                <Icon size={12} /> {c.label}
-              </button>
-            );
-          })}
-        </div>
+        <label style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          fontSize: 11.5, color: 'var(--text-muted)', marginBottom: 8, cursor: 'pointer',
+        }}>
+          <input type="checkbox" checked={pin} onChange={(e) => setPin(e.target.checked)} />
+          <Pin size={12} /> Pin to top of feed
+        </label>
       )}
 
       {mode === 'direct' && (
@@ -399,10 +490,11 @@ function Composer({ onSent, onPending }) {
           />
           <textarea
             className="wa-body-input"
-            placeholder="Type a message to your users…"
+            placeholder={mode === 'broadcast' ? 'Write an announcement…' : 'Type a message to this user…'}
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={1}
+            maxLength={MAX_CAPTION_LEN}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -425,9 +517,9 @@ function Composer({ onSent, onPending }) {
 
       <ConfirmDialog
         open={confirmOpen}
-        title="Send to all users?"
-        message={`This message will go out to every RENOCORP user via ${channelMeta(channel).label.toLowerCase()}. This can't be recalled once sent.`}
-        confirmLabel="Send broadcast"
+        title="Publish broadcast?"
+        message={`This announcement will go out to every RENOCORP user${pin ? ' and be pinned to the top of the feed' : ''}. It can be edited or deleted afterward, but the initial push can't be recalled.`}
+        confirmLabel="Publish"
         onCancel={() => setConfirmOpen(false)}
         onConfirm={doSend}
       />
@@ -524,16 +616,6 @@ if (!document.querySelector('style[data-scope="admin-broadcast"]')) {
       border-radius: 999px; cursor: pointer; transition: all var(--transition);
     }
     .wa-mode-btn.active { background: var(--accent-dim); border-color: var(--accent-border); color: var(--accent); }
-
-    .wa-channel-row { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
-    .wa-chip {
-      display: flex; align-items: center; gap: 5px;
-      background: var(--surface-3); border: 1px solid var(--border);
-      color: var(--text-muted); font-size: 11px; font-family: var(--font-mono);
-      padding: 5px 10px; border-radius: 999px; cursor: pointer;
-      transition: all var(--transition);
-    }
-    .wa-chip.active { background: var(--info-dim); border-color: rgba(96,165,250,0.35); color: var(--info); }
 
     .wa-user-search { margin-bottom: 8px; }
     .wa-user-input { width: 100%; padding-left: 30px !important; }
