@@ -1,9 +1,9 @@
 {
   "name": "renocorp-ui",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.1.1",
   "type": "module",
-  "description": "RENOCORP \u2014 production React frontend (Vite + custom design system, no CSS framework)",
+  "description": "RENOCORP — production React frontend (Vite + custom design system, no CSS framework)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -20,7 +20,10 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",
-    "lucide-react": "^0.383.0"
+    "lucide-react": "^0.383.0",
+    "@capacitor/app": "^6.0.1",
+    "@capacitor/share": "^6.0.1",
+    "@capacitor/device": "^6.0.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
