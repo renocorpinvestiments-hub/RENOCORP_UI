@@ -111,7 +111,7 @@ jobs:
     if: needs.build-and-test.outputs.lockfile-present == 'true'
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Build image
         uses: docker/build-push-action@v6
         with:
