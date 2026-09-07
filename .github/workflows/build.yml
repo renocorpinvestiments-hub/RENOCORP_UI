@@ -22,7 +22,7 @@ jobs:
 
       # ── 3. Cache pip packages (speeds up repeat builds) ──────────
       - name: Cache pip
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~\AppData\Local\pip\Cache
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
