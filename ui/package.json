@@ -23,7 +23,7 @@
     "lucide-react": "^0.383.0",
     "@capacitor/app": "^6.0.1",
     "@capacitor/share": "^6.0.1",
-    "@capacitor/device": "^6.0.1"
+    "@capacitor/device": "^8.0.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
