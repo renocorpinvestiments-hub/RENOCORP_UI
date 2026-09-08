@@ -1,0 +1,16 @@
+# .dockerignore — RENOCORP frontend
+# NEW FILE — P2 fix (RENOCORP_PRODUCTION_READINESS.md §5,
+# "Docker hardening").
+
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.git/
+.github/
+*.md
+coverage/
+.vscode/
+.idea/
+.DS_Store

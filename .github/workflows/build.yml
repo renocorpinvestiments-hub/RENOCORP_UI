@@ -1,0 +1,89 @@
+name: Build MT5Bridge EXE
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # allows manual trigger from GitHub Actions tab
+
+jobs:
+  build:
+    runs-on: windows-latest   # MUST be Windows for MetaTrader5 package
+
+    steps:
+      # ── 1. Get the code ──────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Python 3.11 (stable, MT5 compatible) ──────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ── 3. Cache pip packages (speeds up repeat builds) ──────────
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # ── 4. Install all dependencies ───────────────────────────────
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi==0.115.0
+          pip install "uvicorn[standard]==0.30.6"
+          pip install pydantic==2.9.2
+          pip install python-dotenv==1.0.1
+          pip install requests==2.32.3
+          pip install httptools==0.6.4
+          pip install websockets==13.1
+          pip install python-multipart==0.0.12
+          pip install MetaTrader5
+          pip install pyinstaller
+
+      # ── 5. Build main MT5Bridge.exe ───────────────────────────────
+      - name: Build MT5Bridge.exe
+        run: |
+          python -m PyInstaller --noconfirm --clean build/bridge.spec
+
+      # ── 6. Build standalone Troubleshoot.exe ─────────────────────
+      - name: Build Troubleshoot.exe
+        run: |
+          python -m PyInstaller `
+            --noconfirm --onefile --windowed `
+            --name Troubleshoot `
+            --distpath dist/MT5Bridge `
+            tools/troubleshoot.py
+
+      # ── 7. Copy runtime assets into the release folder ───────────
+      - name: Copy assets to release
+        run: |
+          if (Test-Path "cloudflared.exe") {
+            Copy-Item "cloudflared.exe" "dist/MT5Bridge/"
+            Write-Host "cloudflared.exe copied"
+          } else {
+            Write-Host "cloudflared.exe not in repo - download separately"
+          }
+          if (Test-Path "config.yml") {
+            Copy-Item "config.yml" "dist/MT5Bridge/"
+          }
+          if (Test-Path ".env.example") {
+            Copy-Item ".env.example" "dist/MT5Bridge/"
+          }
+
+      # ── 8. Show what was built ────────────────────────────────────
+      - name: List release contents
+        run: |
+          Write-Host "=== Release contents ==="
+          Get-ChildItem "dist/MT5Bridge/" | Format-Table Name, Length
+
+      # ── 9. Upload as downloadable artifact ───────────────────────
+      - name: Upload MT5Bridge Release
+        uses: actions/upload-artifact@v4
+        with:
+          name: MT5Bridge-Release
+          path: dist/MT5Bridge/
+          retention-days: 30   # artifact stays downloadable for 30 days

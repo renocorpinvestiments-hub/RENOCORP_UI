@@ -1,0 +1,49 @@
+// tsconfig.json
+// NEW FILE — P1 fix (RENOCORP_PRODUCTION_READINESS.md P1 item #6,
+// "Frontend has zero TypeScript").
+//
+// Enables `tsc --noEmit` as a real, CI-gatable type-check pass over
+// the EXISTING .js/.jsx files as-is — no renames, no rewrites, zero
+// risk to working code. `checkJs: true` means the TypeScript compiler
+// infers types from the existing JS and flags real bugs (wrong
+// argument counts, undefined property access on a known shape, etc.)
+// without writing a single .ts file first.
+//
+// Run with: npm run typecheck (script added to package.json).
+//
+// This is intentionally the FIRST step of incremental adoption per
+// RENOCORP_PRODUCTION_READINESS.md Phase 4 item 13. A good next step
+// after this baseline is clean: progressively rename the highest-risk
+// files (src/api.js, src/AuthContext.jsx) to .ts/.tsx and tighten
+// `strict`/`strictNullChecks` to true.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["src/**/*.js", "src/**/*.jsx", "src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "dist", "build"]
+}
+
