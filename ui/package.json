@@ -22,7 +22,7 @@
     "react-router-dom": "^6.28.0",
     "lucide-react": "^0.383.0",
     "@capacitor/app": "^6.0.1",
-    "@capacitor/share": "^6.0.1",
+    "@capacitor/share": "^8.0.2",
     "@capacitor/device": "^6.0.1"
   },
   "devDependencies": {
